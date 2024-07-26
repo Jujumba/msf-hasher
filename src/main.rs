@@ -11,6 +11,7 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq, Parser)]
 #[command(about, version)]
 #[clap(disable_help_flag = true)]
+#[allow(clippy::struct_excessive_bools)]
 /// A simple *sum program with support of SHA1, SHA256, SHA512, MD5 algorithms.
 struct Args {
     #[arg(short, long, default_value_t)]
@@ -70,19 +71,18 @@ impl Args {
     pub fn readers(&self) -> impl Iterator<Item = Reader> + '_ {
         // As iterators are lazy, this won't open all files beforehand
         // But only when we really need to read it
-        self.files.iter().filter_map(|path| self.open_file(&path))
+        self.files.iter().filter_map(|path| self.open_file(path))
     }
 
     /// Yields a lazy iterator over the names of the provided files
     pub fn pathes(&self) -> impl Iterator<Item = &Path> {
-        self.files.iter().map(|path| path.as_path())
+        self.files.iter().map(PathBuf::as_path)
     }
 
     fn open_file(&self, path: &Path) -> Option<Reader> {
-        // Check if the path matches our `stdin` definition
-        match path.to_str() {
-            Some("-") => return Some(self.open_stdin()),
-            _ => (),
+        // Check if the path matches our definition of `stdin`
+        if let Some("-") = path.to_str() {
+            return Some(Self::open_stdin());
         }
 
         // Otherwise it's a "regular" file
@@ -97,24 +97,21 @@ impl Args {
         }
     }
 
-    fn open_stdin(&self) -> Reader {
+    fn open_stdin() -> Reader {
         BufReader::new(Box::new(io::stdin()))
     }
 }
 
 /// Computes and prints the hashes of the provided files
-fn hash(args: Args, mut hasher: Hasher) {
+fn hash(args: &Args, hasher: &mut Hasher) {
     let mut buf = Vec::new();
     for (path, mut reader) in args.pathes().zip(args.readers()) {
-        match reader.read_to_end(&mut buf) {
-            Err(e) => {
-                // This should log regardless of the `--ignore-missing` argument
-                // as the file was already opened, and now we are having troubles reading it.
-                // Though it's unlikely to fail.
-                eprintln!("Error reading {path:?}: {e:?}");
-                continue;
-            }
-            _ => (),
+        if let Err(e) = reader.read_to_end(&mut buf) {
+            // This should log regardless of the `--ignore-missing` argument
+            // as the file was already opened, and now we are having troubles reading it.
+            // Though it's unlikely to fail.
+            eprintln!("Error reading {path:?}: {e:?}");
+            continue;
         }
 
         let hash = hasher.hash(&buf);
@@ -129,10 +126,10 @@ fn hash(args: Args, mut hasher: Hasher) {
 /// Note that the `exit_code` parameter will be set to `ExitCode::FAILURE` if any
 /// of the provided files contains an improperly formatted line and
 /// if the `Args::strict` argument is set
-fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
+fn check(args: &Args, hasher: &mut Hasher, exit_code: &mut ExitCode) {
     for (path, reader) in args.pathes().zip(args.readers()) {
         // Reading all lines in the supplied files
-        for (index, line) in reader.lines().into_iter().enumerate() {
+        for (index, line) in reader.lines().enumerate() {
             let line = line.unwrap();
 
             // Splitting checksum and the filename
@@ -152,7 +149,7 @@ fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
 
             let file = file.trim_start(); // It may be one or two spaces after hash in checksum file
 
-            let data = match fs::read_to_string(&file) {
+            let data = match fs::read_to_string(file) {
                 Ok(data) => data,
                 Err(_) if !args.ignore_missing => {
                     eprintln!("Error: failed to open {file:?}");
@@ -172,14 +169,14 @@ fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
 
 fn main() -> ExitCode {
     let args = Args::parse().validate();
-    let hasher = Hasher::from_algorithm(args.hash);
+    let mut hasher = Hasher::from_algorithm(args.hash);
 
     let mut exit_code = ExitCode::SUCCESS;
 
     if args.check {
-        check(args, hasher, &mut exit_code);
+        check(&args, &mut hasher, &mut exit_code);
     } else {
-        hash(args, hasher);
+        hash(&args, &mut hasher);
     }
 
     exit_code
