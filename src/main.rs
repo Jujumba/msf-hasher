@@ -60,11 +60,10 @@ impl Args {
         }
         self
     }
-    pub fn readers(&self) -> Vec<Reader> {
-        self.files
-            .iter()
-            .filter_map(|path| self.open_file(&path))
-            .collect()
+    pub fn readers(&self) -> impl Iterator<Item = Reader> + '_ {
+        // As iterators are lazy, this won't open all files beforehand
+        // But only when we really need to read it
+        self.files.iter().filter_map(|path| self.open_file(&path))
     }
     pub fn pathes(&self) -> impl Iterator<Item = &Path> {
         self.files.iter().map(|path| path.as_path())
@@ -97,6 +96,9 @@ fn hash(args: Args, mut hasher: Hasher) {
     for (path, mut reader) in args.pathes().zip(args.readers()) {
         match reader.read_to_end(&mut buf) {
             Err(e) => {
+                // This should log regardless of the `--ignore-missing` argument
+                // as the file was already opened, and now we are having troubles reading it.
+                // Though it's unlikely to fail.
                 eprintln!("Error reading {path:?}: {e:?}");
                 continue;
             }
@@ -111,9 +113,11 @@ fn hash(args: Args, mut hasher: Hasher) {
 }
 fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
     for (path, reader) in args.pathes().zip(args.readers()) {
+        // Reading all lines in the supplied files
         for (index, line) in reader.lines().into_iter().enumerate() {
             let line = line.unwrap();
 
+            // Splitting checksum and the filename
             let Some((checksum, file)) = line.split_once(' ') else {
                 if args.warn {
                     eprintln!("Improperly formatted line at {}:{}", path.display(), index);
@@ -123,6 +127,8 @@ fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
                 }
                 continue;
             };
+
+            let file = file.trim_start(); // It may be one or two spaces after hash in checksum file
 
             let data = match fs::read_to_string(&file) {
                 Ok(data) => data,
