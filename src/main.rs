@@ -55,6 +55,10 @@ struct Args {
 type Reader = BufReader<Box<dyn Read>>;
 
 impl Args {
+    /// Validates CLI-argument
+    ///
+    /// The only invariant by far that *must* be uphold is:
+    /// * If no files were provided, read from standard input
     pub fn validate(mut self) -> Self {
         if self.files.is_empty() {
             self.files.push(PathBuf::from("-"));
