@@ -5,6 +5,7 @@ use std::{
     fs,
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Parser)]
@@ -20,6 +21,18 @@ struct Args {
     // todo: describe how checksum file looks like
     /// Read sums using the provided algorithm from the FILEs and check them.
     pub check: bool,
+
+    #[arg(long)]
+    /// Exit non-zero for improperly formatted checksum lines.
+    pub strict: bool,
+
+    #[arg(long)]
+    /// Warn about improperly formatted checksum lines.
+    pub warn: bool,
+
+    #[arg(long)]
+    /// Don't print OK for each successfully verified file.
+    pub quiet: bool,
 
     #[arg(long)]
     /// Don’t fail or report status for missing files.
@@ -83,7 +96,7 @@ fn hash(args: Args, mut hasher: Hasher) {
     let mut buf = Vec::new();
     for (path, mut reader) in args.pathes().zip(args.readers()) {
         match reader.read_to_end(&mut buf) {
-            Err(e) if !args.ignore_missing => {
+            Err(e) => {
                 eprintln!("Error reading {path:?}: {e:?}");
                 continue;
             }
@@ -96,20 +109,18 @@ fn hash(args: Args, mut hasher: Hasher) {
         buf.truncate(0); // Reset the buffer. This sets `length` to 0, so the next iteration will overwrite the data
     }
 }
-fn check(args: Args, mut hasher: Hasher) {
+fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
     for (path, reader) in args.pathes().zip(args.readers()) {
-        let lines = reader
-            .lines()
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, line)| match line.ok() {
-                Some(l) => Some((i, l)),
-                None => None,
-            });
+        for (index, line) in reader.lines().into_iter().enumerate() {
+            let line = line.unwrap();
 
-        for (index, line) in lines {
             let Some((checksum, file)) = line.split_once(' ') else {
-                eprintln!("Improperly formatted line at {}:{}", path.display(), index);
+                if args.warn {
+                    eprintln!("Improperly formatted line at {}:{}", path.display(), index);
+                }
+                if args.strict {
+                    *exit_code = ExitCode::FAILURE;
+                }
                 continue;
             };
 
@@ -122,22 +133,26 @@ fn check(args: Args, mut hasher: Hasher) {
                 _ => continue,
             };
 
-            if hasher.verify(checksum, &data) {
-                println!("{file}: OK");
-            } else {
-                println!("{file}: FAILED");
+            match (hasher.verify(checksum, &data), args.quiet) {
+                (true, false) => println!("{file}: OK"),
+                (false, _) => println!("{file}: FAILED"),
+                _ => (),
             }
         }
     }
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args = Args::parse().validate();
-
     let hasher = Hasher::from_algorithm(args.hash);
+
+    let mut exit_code = ExitCode::SUCCESS;
+
     if args.check {
-        check(args, hasher);
+        check(args, hasher, &mut exit_code);
     } else {
         hash(args, hasher);
     }
+
+    exit_code
 }
