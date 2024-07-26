@@ -20,7 +20,6 @@ struct Args {
     pub hash: Algorithm,
 
     #[arg(short, long)]
-    // todo: describe how checksum file looks like
     /// Read sums using the provided algorithm from the FILEs and check them.
     pub check: bool,
 
