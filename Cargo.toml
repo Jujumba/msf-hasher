@@ -7,3 +7,6 @@ edition = "2021"
 clap = { version = "4.5.11", features = ["derive"] }
 hashes = { version = "0.1.9", features = ["std"] }
 rust-crypto = "0.2.36"
+
+[dev-dependencies]
+assert_cmd = "2.0.15"
