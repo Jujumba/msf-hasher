@@ -11,6 +11,7 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq, Parser)]
 #[command(about, version)]
 #[clap(disable_help_flag = true)]
+/// A simple *sum program with support of SHA1, SHA256, SHA512, MD5 algorigthms.
 struct Args {
     #[arg(short, long, default_value_t)]
     /// Change the hash algorithm from SHA256 (default) to one of [MD5,SHA1,SHA512].
@@ -70,8 +71,8 @@ impl Args {
     }
     fn open_file(&self, path: &Path) -> Option<Reader> {
         // Check if the path matches our `stdin` definition
-        match path.to_str().unwrap() {
-            "" | "-" => return Some(self.open_stdin()),
+        match path.to_str() {
+            Some("-") => return Some(self.open_stdin()),
             _ => (),
         }
 
@@ -120,7 +121,11 @@ fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
             // Splitting checksum and the filename
             let Some((checksum, file)) = line.split_once(' ') else {
                 if args.warn {
-                    eprintln!("Improperly formatted line at {}:{}", path.display(), index);
+                    eprintln!(
+                        "Improperly formatted line at \"{}:{}\"",
+                        path.display(),
+                        index + 1
+                    );
                 }
                 if args.strict {
                     *exit_code = ExitCode::FAILURE;
@@ -139,7 +144,7 @@ fn check(args: Args, mut hasher: Hasher, exit_code: &mut ExitCode) {
                 _ => continue,
             };
 
-            match (hasher.verify(checksum, &data), args.quiet) {
+            match (hasher.verify(&data, checksum), args.quiet) {
                 (true, false) => println!("{file}: OK"),
                 (false, _) => println!("{file}: FAILED"),
                 _ => (),

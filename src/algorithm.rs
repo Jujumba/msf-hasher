@@ -3,6 +3,7 @@ use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, ValueEnum)]
 #[clap(rename_all = "UPPER")]
+/// An enum representing the supported algorithms
 pub enum Algorithm {
     Sha1,
     Sha512,
