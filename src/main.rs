@@ -52,8 +52,6 @@ struct Args {
     files: Vec<PathBuf>,
 }
 
-type Reader = BufReader<Box<dyn Read>>;
-
 impl Args {
     /// Validates CLI-argument
     ///
@@ -66,58 +64,118 @@ impl Args {
         self
     }
 
-    /// Yields a lazy iterator over the provided files handles
-    pub fn readers(&self) -> impl Iterator<Item = Reader> + '_ {
-        // As iterators are lazy, this won't open all files beforehand
-        // But only when we really need to read it
-        self.files.iter().filter_map(|path| self.open_file(path))
-    }
-
-    /// Yields a lazy iterator over the names of the provided files
-    pub fn pathes(&self) -> impl Iterator<Item = &Path> {
-        self.files.iter().map(PathBuf::as_path)
-    }
-
-    fn open_file(&self, path: &Path) -> Option<Reader> {
-        // Check if the path matches our definition of `stdin`
-        if let Some("-") = path.to_str() {
-            return Some(Self::open_stdin());
-        }
-
-        // Otherwise it's a "regular" file
-        let file = fs::File::open(path);
-        match file {
-            Ok(file) => Some(BufReader::new(Box::new(file))),
-            Err(e) if !self.ignore_missing => {
-                eprintln!("Error opening {path:?}: {e:?}");
-                None
+    /// Tries to open a file at the given path
+    ///
+    /// This function is aware of the configuration, and will log an error if
+    /// the file doesn't exist and if the `--ignore-missing` argument is set
+    pub fn try_open_file<P: AsRef<Path>>(&self, path: P) -> io::Result<fs::File> {
+        let path = path.as_ref();
+        match fs::File::open(path) {
+            val @ Ok(_) => val,
+            err => {
+                if !self.ignore_missing {
+                    eprintln!("Error: failed to open {path:?}");
+                }
+                err
             }
-            _ => None,
         }
     }
 
-    fn open_stdin() -> Reader {
-        BufReader::new(Box::new(io::stdin()))
+    /// Tries to read a file at the given path to string
+    ///
+    /// This function is aware of the configuration, and will log an error if
+    /// the file doesn't exist and if the `--ignore-missing` argument is set
+    pub fn try_read_to_string<P: AsRef<Path>>(&self, path: P) -> io::Result<String> {
+        let path = path.as_ref();
+        match fs::read_to_string(path) {
+            value @ Ok(_) => value,
+            err => {
+                if !self.ignore_missing {
+                    eprintln!("Error: failed to open {path:?}");
+                }
+                err
+            }
+        }
     }
+}
+
+fn hash_single<T>(hasher: &mut Hasher, mut reader: BufReader<T>, path: &Path, buf: &mut Vec<u8>)
+where
+    T: Read,
+{
+    if let Err(e) = reader.read_to_end(buf) {
+        // This should log regardless of the `--ignore-missing` argument
+        // as the file was already opened, and now we are having troubles reading it.
+        // Though it's unlikely to fail.
+        eprintln!("Error reading {path:?}: {e:?}");
+        return;
+    }
+
+    let hash = hasher.hash(&buf);
+    println!("{}  {}", hash, path.display());
 }
 
 /// Computes and prints the hashes of the provided files
 fn hash(args: &Args, hasher: &mut Hasher) {
     let mut buf = Vec::new();
-    for (path, mut reader) in args.pathes().zip(args.readers()) {
-        if let Err(e) = reader.read_to_end(&mut buf) {
-            // This should log regardless of the `--ignore-missing` argument
-            // as the file was already opened, and now we are having troubles reading it.
-            // Though it's unlikely to fail.
-            eprintln!("Error reading {path:?}: {e:?}");
-            continue;
+    for path in args.files.iter() {
+        match path.to_str() {
+            Some("-") => hash_single(hasher, BufReader::new(io::stdin()), path, &mut buf),
+            _ => {
+                let Ok(file) = args.try_open_file(path) else {
+                    continue;
+                };
+                hash_single(hasher, BufReader::new(file), path, &mut buf);
+            }
         }
-
-        let hash = hasher.hash(&buf);
-        println!("{}  {}", hash, path.display());
-
         buf.truncate(0); // Reset the buffer. This sets `length` to 0, so the next iteration will overwrite the data
     }
+}
+
+fn check_single<T>(
+    args: &Args,
+    hasher: &mut Hasher,
+    reader: BufReader<T>,
+    path: &Path,
+    exit_code: &mut ExitCode,
+) -> usize
+where
+    T: Read,
+{
+    let mut proper_lines = 0;
+    // Reading all lines in the supplied files
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.unwrap();
+
+        // Splitting checksum and the filename
+        let Some((checksum, file)) = line.split_once(' ') else {
+            if args.warn {
+                eprintln!(
+                    "Improperly formatted line at \"{}:{}\"",
+                    path.display(),
+                    index + 1
+                );
+            }
+            if args.strict {
+                *exit_code = ExitCode::FAILURE;
+            }
+            continue;
+        };
+        proper_lines += 1;
+
+        let file = file.trim_start(); // It may be one or two spaces after hash in checksum file
+
+        let Ok(data) = args.try_read_to_string(file) else {
+            continue;
+        };
+
+        match (hasher.verify(&data, checksum), args.quiet) {
+            (true, false) => println!("{file}: OK"),
+            (false, _) => println!("{file}: FAILED"),
+            _ => (),
+        }
+    }
+    proper_lines
 }
 
 /// Verifies checksums of the provided files
@@ -125,44 +183,23 @@ fn hash(args: &Args, hasher: &mut Hasher) {
 /// Note that the `exit_code` parameter will be set to `ExitCode::FAILURE` if any
 /// of the provided files contains an improperly formatted line and
 /// if the `Args::strict` argument is set
-fn check(args: &Args, hasher: &mut Hasher, exit_code: &mut ExitCode) {
-    for (path, reader) in args.pathes().zip(args.readers()) {
-        // Reading all lines in the supplied files
-        for (index, line) in reader.lines().enumerate() {
-            let line = line.unwrap();
-
-            // Splitting checksum and the filename
-            let Some((checksum, file)) = line.split_once(' ') else {
-                if args.warn {
-                    eprintln!(
-                        "Improperly formatted line at \"{}:{}\"",
-                        path.display(),
-                        index + 1
-                    );
-                }
-                if args.strict {
-                    *exit_code = ExitCode::FAILURE;
-                }
-                continue;
-            };
-
-            let file = file.trim_start(); // It may be one or two spaces after hash in checksum file
-
-            let data = match fs::read_to_string(file) {
-                Ok(data) => data,
-                Err(_) if !args.ignore_missing => {
-                    eprintln!("Error: failed to open {file:?}");
+fn check_all(args: &Args, hasher: &mut Hasher, exit_code: &mut ExitCode) {
+    let mut proper_lines = 0;
+    for path in args.files.iter() {
+        proper_lines += match path.to_str() {
+            Some("-") => check_single(args, hasher, BufReader::new(io::stdin()), path, exit_code),
+            _ => {
+                let Ok(file) = args.try_open_file(path) else {
                     continue;
-                }
-                _ => continue,
-            };
-
-            match (hasher.verify(&data, checksum), args.quiet) {
-                (true, false) => println!("{file}: OK"),
-                (false, _) => println!("{file}: FAILED"),
-                _ => (),
+                };
+                check_single(args, hasher, BufReader::new(file), path, exit_code)
             }
         }
+    }
+
+    // `sha256sum` also exits with 1 if `--strict` is set and no proper lines were scanned
+    if proper_lines == 0 && args.strict {
+        *exit_code = ExitCode::FAILURE;
     }
 }
 
@@ -173,7 +210,7 @@ fn main() -> ExitCode {
     let mut exit_code = ExitCode::SUCCESS;
 
     if args.check {
-        check(&args, &mut hasher, &mut exit_code);
+        check_all(&args, &mut hasher, &mut exit_code);
     } else {
         hash(&args, &mut hasher);
     }
