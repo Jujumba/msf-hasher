@@ -11,7 +11,7 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq, Parser)]
 #[command(about, version)]
 #[clap(disable_help_flag = true)]
-/// A simple *sum program with support of SHA1, SHA256, SHA512, MD5 algorigthms.
+/// A simple *sum program with support of SHA1, SHA256, SHA512, MD5 algorithms.
 struct Args {
     #[arg(short, long, default_value_t)]
     /// Change the hash algorithm from SHA256 (default) to one of [MD5,SHA1,SHA512].
