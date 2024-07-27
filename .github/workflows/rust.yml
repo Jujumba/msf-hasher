@@ -22,3 +22,6 @@ jobs:
       run: cargo test --verbose
     - name: Run Clippy
       run: cargo clippy
+    - name: Run fmt
+      run: rustup component add nightly
+      run: cargo +nightly fmt --check
