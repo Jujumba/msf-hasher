@@ -118,16 +118,18 @@ where
 /// Computes and prints the hashes of the provided files
 fn hash(args: &Args, hasher: &mut Hasher) {
     let mut buf = Vec::new();
-    for path in args.files.iter() {
-        match path.to_str() {
-            Some("-") => hash_single(hasher, BufReader::new(io::stdin()), path, &mut buf),
-            _ => {
-                let Ok(file) = args.try_open_file(path) else {
-                    continue;
-                };
-                hash_single(hasher, BufReader::new(file), path, &mut buf);
-            }
+
+    for path in &args.files {
+        if let Some("-") = path.to_str() {
+            hash_single(hasher, BufReader::new(io::stdin()), path, &mut buf);
+        } else {
+            let Ok(file) = args.try_open_file(path) else {
+                continue;
+            };
+
+            hash_single(hasher, BufReader::new(file), path, &mut buf);
         }
+
         buf.truncate(0); // Reset the buffer. This sets `length` to 0, so the next iteration will overwrite the data
     }
 }
@@ -185,15 +187,15 @@ where
 /// if the `Args::strict` argument is set
 fn check_all(args: &Args, hasher: &mut Hasher, exit_code: &mut ExitCode) {
     let mut proper_lines = 0;
-    for path in args.files.iter() {
-        proper_lines += match path.to_str() {
-            Some("-") => check_single(args, hasher, BufReader::new(io::stdin()), path, exit_code),
-            _ => {
-                let Ok(file) = args.try_open_file(path) else {
-                    continue;
-                };
-                check_single(args, hasher, BufReader::new(file), path, exit_code)
-            }
+    for path in &args.files {
+        if let Some("-") = path.to_str() {
+            proper_lines +=
+                check_single(args, hasher, BufReader::new(io::stdin()), path, exit_code);
+        } else {
+            let Ok(file) = args.try_open_file(path) else {
+                continue;
+            };
+            proper_lines += check_single(args, hasher, BufReader::new(file), path, exit_code);
         }
     }
 
