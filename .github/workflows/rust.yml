@@ -22,6 +22,9 @@ jobs:
       run: cargo test --verbose
     - name: Run Clippy
       run: cargo clippy
+    - name: Install nightly
+      run: rustup toolchain install nightly
+    - name: Install nightly fmt
+      run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
     - name: Run fmt
-      run: rustup component add nightly
       run: cargo +nightly fmt --check
