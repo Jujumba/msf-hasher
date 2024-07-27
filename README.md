@@ -1,5 +1,7 @@
 # What's this? 🤔
-This is a small CLI-application, which aims to be a combination of `sha1sum`, `sha256sum`, `sha512sum`, `md5sum` programs (that is, the project can use all aforementioned algorithms)
+This is a small CLI-application, which aims to be a combination of `sha1sum`, `sha256sum`, `sha512sum`, `md5sum` programs.
+
+That is, this program can hash contests of specified files and verify hashes accordingly
 
 # How to build/use this?
 To begin with, you must obtain a copy of the source code. Then, you can get more help by running the following:
