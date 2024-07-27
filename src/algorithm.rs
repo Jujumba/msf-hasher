@@ -1,5 +1,6 @@
-use clap::ValueEnum;
 use std::fmt;
+
+use clap::ValueEnum;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, ValueEnum)]
 #[clap(rename_all = "UPPER")]

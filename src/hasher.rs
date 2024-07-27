@@ -1,11 +1,11 @@
-use crate::Algorithm;
-
 use crypto::{
     digest::Digest,
     md5::Md5,
     sha1::Sha1,
     sha2::{Sha256, Sha512},
 };
+
+use crate::Algorithm;
 
 /// A small wrapper around hashing functions
 pub struct Hasher {

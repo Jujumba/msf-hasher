@@ -1,12 +1,12 @@
-use msf_hasher::{Algorithm, Hasher};
-
-use clap::Parser;
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::ExitCode,
 };
+
+use clap::Parser;
+use msf_hasher::{Algorithm, Hasher};
 
 #[derive(Clone, Debug, PartialEq, Eq, Parser)]
 #[command(about, version)]
